@@ -2,8 +2,15 @@
 
 A hands-on DevOps lab that walks through containerising a Notes API, deploying it to a local Kubernetes cluster, enforcing policies with **Kyverno**, and implementing backup/restore with **Velero + MinIO**.
 
------
+---
 
+## Architecture Diagram
+
+<div align="center">
+  <img src="Screenshot 2026-05-06 235826.png" >
+</div>
+
+---
 ## 📋 Table of Contents
 
 - [Overview](#overview)
