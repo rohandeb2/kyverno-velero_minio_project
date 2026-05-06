@@ -1,0 +1,12 @@
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: app-backup-01
+  namespace: velero
+spec:
+  includedNamespaces:
+    - app
+  storageLocation: default
+  ttl: 72h0m0s
+  snapshotVolumes: false
+  defaultVolumesToFsBackup: true
