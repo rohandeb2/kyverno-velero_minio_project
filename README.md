@@ -1,112 +1,137 @@
-Here’s a clean, **professional `README.md`** you can directly use for your project 👇
+# 🚀 DevOps Lab — Kubernetes, Kyverno & Velero
 
----
+A hands-on DevOps lab that walks through containerising a Notes API, deploying it to a local Kubernetes cluster, enforcing policies with **Kyverno**, and implementing backup/restore with **Velero + MinIO**.
 
-```markdown
-# 🚀 Kubernetes Backup & Restore Project (Velero + MinIO + Kyverno)
+-----
 
-This project demonstrates a **production-like DevOps workflow** involving:
+## 📋 Table of Contents
 
-- 🐳 Docker image build & push  
-- ☸️ Kubernetes (KIND cluster) setup  
-- 🔐 Policy enforcement using Kyverno  
-- 💾 Backup & restore using Velero + MinIO  
-- 🔥 Disaster recovery simulation  
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+  - [1. System Setup](#1-system-setup)
+  - [2. Docker — Build & Push](#2-docker--build--push)
+  - [3. Kind Cluster Setup](#3-kind-cluster-setup)
+  - [4. Kyverno Policy Enforcement](#4-kyverno-policy-enforcement)
+  - [5. Deploy the Application](#5-deploy-the-application)
+  - [6. Velero Backup & Restore](#6-velero-backup--restore)
+- [Bugs & Troubleshooting](#bugs--troubleshooting)
+- [License](#license)
 
----
+-----
 
-## 📌 Project Architecture
+## Overview
+
+This lab covers a full DevOps workflow on a local Kubernetes cluster:
+
+|Tool       |Purpose                           |
+|-----------|----------------------------------|
+|**Docker** |Containerise the Notes API        |
+|**Kind**   |Local Kubernetes cluster          |
+|**Kyverno**|Policy-as-code enforcement        |
+|**Velero** |Backup & disaster recovery        |
+|**MinIO**  |S3-compatible local object storage|
+
+-----
+
+## Prerequisites
+
+Make sure the following are available on your machine before starting:
+
+- Ubuntu (or a Debian-based Linux distro)
+- `curl` and `tar`
+- Docker Hub account
+- Sufficient disk space for images and backups
+
+-----
+
+## Project Structure
 
 ```
+.
+├── app/                    # Notes API source code & Dockerfile
+├── k8s/
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── pvc.yaml
+│   ├── service.yaml
+│   └── deployment.yaml
+├── kyverno/                # Kyverno ClusterPolicy manifests
+├── velero/
+│   ├── velero_namespace.yaml
+│   ├── minio-deployment.yaml
+│   ├── bsl.yaml            # BackupStorageLocation
+│   └── backup.yaml
+└── credentials-velero      # MinIO credentials file (not committed)
+```
 
-Docker → Kubernetes (KIND) → Kyverno Policies → Application Deployment
-↓
-Velero Backup
-↓
-MinIO Storage
+-----
 
-````
+## Getting Started
 
----
+### 1. System Setup
 
-## 🛠️ Prerequisites
-
-- Linux system (Ubuntu recommended)
-- `sudo` access
-- Internet connection
-
----
-
-## ⚙️ Setup Environment
-
-### 1. Install Docker
+Update your system and install Docker:
 
 ```bash
-sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get update && sudo apt-get upgrade
 sudo apt install -y docker.io
-
 sudo systemctl enable docker
 sudo systemctl start docker
+docker ps   # verify Docker is running
+```
 
-docker ps
-````
+### 2. Docker — Build & Push
 
----
-
-### 2. Build & Push Docker Image
+Log in to Docker Hub, build the image, and push it:
 
 ```bash
 docker login -u <your-username>
-
-docker build -t <your-username>/notes-api:1.0.0 ./app
-docker push <your-username>/notes-api:1.0.0
+docker build -t youruser/notes-api:1.0.0 ./app
+docker push youruser/notes-api:1.0.0
 ```
 
----
+> ⚠️ **Important:** Always use a pinned version tag (e.g., `:1.0.0`). The `:latest` tag is blocked by Kyverno policy. See [Bug #1](#bug-1--kyverno-blocks-your-deployment).
 
-### 3. Install KIND (Kubernetes in Docker)
+### 3. Kind Cluster Setup
+
+Install **Kind** and **kubectl**, then create your cluster:
 
 ```bash
+# Install Kind
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-chmod +x kind
-sudo mv kind /usr/local/bin/
-
+chmod +x kind && sudo mv kind /usr/local/bin/
 kind version
-```
 
----
-
-### 4. Install kubectl
-
-```bash
+# Install kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 kubectl version --client
-```
 
----
-
-### 5. Create Kubernetes Cluster
-
-```bash
+# Create the cluster
 kind create cluster --name devops-lab
 ```
 
----
+### 4. Kyverno Policy Enforcement
 
-## 🔐 Install Kyverno (Policy Engine)
+Install Kyverno and apply the lab policies:
 
 ```bash
 kubectl create -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml
 kubectl apply -f kyverno/
 ```
 
----
+Active policies in this lab:
 
-## 🚀 Deploy Application
+|Policy               |Rule                                           |
+|---------------------|-----------------------------------------------|
+|`disallow-latest-tag`|Images must be pinned to a specific version tag|
+|`require-pod-labels` |Pods must have `env` and `team` labels         |
+
+### 5. Deploy the Application
+
+Apply the Kubernetes manifests in order:
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -116,66 +141,18 @@ kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/deployment.yaml
 ```
 
----
+### 6. Velero Backup & Restore
 
-## 🐞 Bug #1 — Kyverno Blocking Deployment
-
-### ❌ Error
-
-```
-admission webhook "validate.kyverno.svc-fail" denied the request
-```
-
-### 🔍 Debug
-
-```bash
-kubectl get clusterpolicy
-kubectl describe clusterpolicy disallow-latest-tag
-
-kubectl get policyreport -A
-kubectl describe policyreport -n app
-```
-
-### ✅ Fix
-
-Update `deployment.yaml`:
-
-* Replace:
-
-```yaml
-image: youruser/notes-api:latest
-```
-
-* With:
-
-```yaml
-image: youruser/notes-api:1.0.0
-```
-
-* Add labels:
-
-```yaml
-labels:
-  env: dev
-  team: backend
-```
-
----
-
-## 💾 Install Velero (Backup Tool)
+#### Install Velero CLI
 
 ```bash
 curl -LO https://github.com/vmware-tanzu/velero/releases/download/v1.13.1/velero-v1.13.1-linux-amd64.tar.gz
-
 tar -xvf velero-v1.13.1-linux-amd64.tar.gz
 sudo mv velero-v1.13.1-linux-amd64/velero /usr/local/bin/
-
 velero version
 ```
 
----
-
-## ☁️ Setup MinIO (S3-compatible storage)
+#### Deploy MinIO and Velero
 
 ```bash
 kubectl apply -f velero/velero_namespace.yaml
@@ -185,13 +162,7 @@ kubectl create secret generic velero-minio-creds \
   --from-literal=cloud="[default]\naws_access_key=minio\naws_secret_key=minio123"
 
 kubectl apply -f velero/minio-deployment.yaml
-```
 
----
-
-## 🔧 Install Velero with MinIO
-
-```bash
 velero install \
   --provider aws \
   --plugins velero/velero-plugin-for-aws:v1.9.0 \
@@ -199,146 +170,109 @@ velero install \
   --secret-file ./credentials-velero \
   --use-volume-snapshots=false \
   --backup-location-config region=minio,s3ForcePathStyle=true,s3Url=http://minio.velero.svc:9000
-```
 
----
-
-## 📍 Configure Backup Storage Location
-
-```bash
 kubectl apply -f velero/bsl.yaml
 kubectl get backupstoragelocation -n velero
 ```
 
----
+#### Create a Backup
 
-## 🐞 Bug #2 — Bucket Not Found
+```bash
+kubectl apply -f velero/backup.yaml
+velero backup describe app-backup-01 --details
+velero backup logs app-backup-01
 
-### 🔍 Debug
+# Verify files in MinIO
+mc ls localminio/velero-backups/
+```
+
+#### Simulate Disaster & Restore
+
+```bash
+kubectl delete namespace app
+velero restore create --from-backup app-backup-01
+velero restore describe --last
+kubectl get pods -n app -w
+```
+
+-----
+
+## Bugs & Troubleshooting
+
+### Bug #1 — Kyverno Blocks Your Deployment
+
+**Error:**
+
+```
+admission webhook "validate.kyverno.svc-fail" denied the request:
+resource Deployment/app/notes-api was blocked due to the following policies
+disallow-latest-tag:
+  require-image-tag: "Using ':latest' tag is not allowed. Pin to a specific version e.g. :1.0.0"
+require-pod-labels:
+  check-required-labels: "Pods must have 'env' and 'team' labels."
+```
+
+**Debug commands:**
+
+```bash
+kubectl get clusterpolicy
+kubectl describe clusterpolicy disallow-latest-tag
+kubectl get policyreport -A
+kubectl describe policyreport -n app
+```
+
+**Fix:** Edit `k8s/deployment.yaml`:
+
+1. Change `image: youruser/notes-api:latest` → `youruser/notes-api:1.0.0`
+1. Add labels under the pod template:
+   
+   ```yaml
+   labels:
+     env: dev
+     team: backend
+   ```
+
+Then re-apply: `kubectl apply -f k8s/deployment.yaml`
+
+-----
+
+### Bug #2 — Velero BackupStorageLocation Unavailable
+
+**Symptoms:** `kubectl get backupstoragelocation -n velero` shows status `Unavailable`.
+
+**Debug commands:**
 
 ```bash
 kubectl describe backupstoragelocation default -n velero
-kubectl logs deployment/velero -n velero | grep -i error
+kubectl logs deployment/velero -n velero --tail=60 | grep -i error
+kubectl get pods -n velero
+kubectl logs deployment/minio -n velero
 ```
 
-### ❌ Error Example
+**Common cause:** The `velero-backups` bucket does not exist in MinIO.
 
-```
-bucket 'velero-backups' does not exist
-```
-
----
-
-### ✅ Fix using MinIO Client (mc)
+**Fix:** Create the bucket using the MinIO CLI:
 
 ```bash
+# Install mc
+curl -LO https://dl.min.io/client/mc/release/linux-amd64/mc
+chmod +x mc && sudo mv mc /usr/local/bin/
+
+# Port-forward MinIO
 kubectl port-forward svc/minio 9000:9000 -n velero &
 
-curl -LO https://dl.min.io/client/mc/release/linux-amd64/mc
-chmod +x mc
-sudo mv mc /usr/local/bin/
-
+# Set alias and create bucket
 mc alias set localminio http://localhost:9000 minio minio123
 mc mb localminio/velero-backups
 mc ls localminio
 ```
 
----
+> ⚠️ **Note:** The original command contains a typo — `http://localhsot:9000` should be `http://localhost:9000`.
 
-## 📦 Create Backup
+Then verify the BSL recovers: `kubectl get backupstoragelocation -n velero`
 
-```bash
-velero backup create app-backup-01 --include-namespaces app
-```
+-----
 
----
+## License
 
-## 🔍 Verify Backup
-
-```bash
-velero backup get
-velero backup describe app-backup-01 --details
-velero backup logs app-backup-01
-```
-
----
-
-## 🧪 Verify in MinIO
-
-```bash
-mc ls localminio/velero-backups/
-```
-
----
-
-## 💥 Simulate Disaster
-
-```bash
-kubectl delete namespace app
-```
-
----
-
-## 🔄 Restore Application
-
-```bash
-velero restore create --from-backup app-backup-01
-
-velero restore describe --last
-kubectl get pods -n app -w
-```
-
----
-
-## ✅ Expected Outcome
-
-* Application restored successfully
-* Pods recreated
-* Services & configs recovered
-* Backup verified in MinIO
-
----
-
-## 🧠 Key Learnings
-
-* Policy enforcement using Kyverno
-* Debugging admission controller failures
-* Kubernetes backup strategies
-* Object storage integration (MinIO)
-* Disaster recovery workflow
-
----
-
-## 📌 Useful Commands
-
-```bash
-velero backup get
-velero restore get
-
-kubectl get all -n app
-kubectl get pods -n velero
-
-mc ls localminio/velero-backups/
-```
-
----
-
-## 🙌 Conclusion
-
-This project simulates a **real-world DevOps scenario**:
-
-* Secure deployments (Kyverno)
-* Reliable backups (Velero)
-* Object storage (MinIO)
-* Disaster recovery (Restore)
-
-Perfect for:
-
-* 🚀 DevOps Engineers
-* ☸️ Kubernetes Learners
-* 🎯 Interview preparation
-
----
-
-Just say: **"make it portfolio ready"**
-```
+This project is provided for educational purposes. Feel free to adapt it for your own DevOps learning environment.
